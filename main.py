@@ -19,7 +19,6 @@ PROTOCOL = socket.SOCK_STREAM
 server_socket = socket.socket(TYPE, PROTOCOL)
 server_socket.bind((HOST, PORT))
 server_socket.listen(100)
-server_socket.settimeout(10)
 
 client_handler_threads = []
 
