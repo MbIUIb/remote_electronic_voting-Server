@@ -12,12 +12,6 @@ from json_keys import JsonKeys as jk
 # env
 load_dotenv()
 
-# logs
-logging.basicConfig(filename='remote_electronic_voting-Server.log',
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO,
-                    encoding="utf-8")
-
 
 class ClientHandler(Thread):
     def __init__(self, name, client_socket: socket.SocketType):
