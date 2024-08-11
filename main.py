@@ -1,3 +1,4 @@
+import os
 import socket
 
 import logging
@@ -10,14 +11,12 @@ logging.basicConfig(filename='remote_electronic_voting-Server.log',
                     level=logging.INFO,
                     encoding="utf-8")
 
-HOST = ''
-PORT = 9999
 TYPE = socket.AF_INET
 PROTOCOL = socket.SOCK_STREAM
 
 # create and bind server socket
 server_socket = socket.socket(TYPE, PROTOCOL)
-server_socket.bind((HOST, PORT))
+server_socket.bind((os.getenv("HOST"), int(os.getenv("PORT"))))
 server_socket.listen(100)
 
 client_handler_threads = []
