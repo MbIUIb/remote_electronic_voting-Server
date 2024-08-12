@@ -35,60 +35,72 @@ class ClientHandler(Thread):
         self.server_pubkey_n = self.server_public_key.n
         self.server_pubkey_e = self.server_public_key.e
         self.server_pubkey_d = self.server_private_key.d
+        self.running = True
 
     def run(self):
         """Запуск работы нового потока обработчика клиентов.
-        Переопределныый метод :py:func:`run()` класса :py:class:`threading.Thread`
+            Переопределныый метод :py:func:`run()` класса :py:class:`threading.Thread`
 
         :return: ``None``
         """
 
         with self.client_socket:
             self.rsa_key_exchange()
+
+            self.client_handler_cycle()
+
     def client_handler_cycle(self):
-        """Цикл для обработки запросов пользователей.
+        """Цикл для принятия и делегирования обработки запросов пользователей.
 
         :return: ``None``
         """
 
-            while True:
-                print("start")
-                recv_data = self.client_socket.recv(16384).decode()
-                if not recv_data:
-                    break
-                logging.info(f"{self.client_socket.getpeername()} send {recv_data}")
+        while self.running:
+            _recv_data = self.client_socket.recv(16384).decode()
+            if not _recv_data:
+                self.running = False
+            logging.info(f"{self.client_socket.getpeername()} send {_recv_data}")
 
-                json_data = self.json_decrypt(json.loads(recv_data))
+            _json_data = self.json_decrypt(json.loads(_recv_data))
 
-                match json_data[jk.REQUEST]:
-                    case jk.REGISTRATION:
-                        reg_state = self.registration(json_data[jk.FIRSTNAME],
+            self.request_matcher(_json_data)
+
+    def request_matcher(self, json_data):
+        """Производит обработку запросов.
+
+        :param dict json_data: словарь, принятый от пользователя и содержащий
+            данные для обработки.
+        :return: ``None``
+        """
+        match json_data[jk.REQUEST]:
+            case jk.REGISTRATION:
+                reg_state = self.registration_request(json_data[jk.FIRSTNAME],
                                                       json_data[jk.LASTNAME],
                                                       json_data[jk.PASSWORD])
-                        send_data = self.json_encrypt({jk.REG_STATE: reg_state})
-                        json_data = json.dumps(send_data).encode()
-                        self.client_socket.send(json_data)
+                send_data = self.json_encrypt({jk.REG_STATE: reg_state})
+                _json_data = json.dumps(send_data).encode()
+                self.client_socket.send(_json_data)
 
-                    case jk.AUTENTICATION:
-                        auth_state = self.authetication(json_data[jk.FIRSTNAME],
+            case jk.AUTENTICATION:
+                auth_state = self.authetication_request(json_data[jk.FIRSTNAME],
                                                         json_data[jk.LASTNAME],
                                                         json_data[jk.PASSWORD])
-                        send_data = self.json_encrypt({jk.AUTH_STATE: str(auth_state)})
-                        json_data = json.dumps(send_data).encode()
-                        self.client_socket.send(json_data)
+                send_data = self.json_encrypt({jk.AUTH_STATE: auth_state})
+                _json_data = json.dumps(send_data).encode()
+                self.client_socket.send(_json_data)
 
-                        if auth_state:
-                            stage_1 = self.client_socket.recv(1024).decode()
-                            print(stage_1)
-                            # stage 1 of cryptography protocol
-                            # ...
-                            # ...
+                if auth_state:
+                    stage_1 = self.client_socket.recv(1024).decode()
+                    print(stage_1)
+                    # stage 1 of cryptography protocol
+                    # ...
+                    # ...
 
-                        else:
-                            break
+                else:
+                    self.running = False
 
-                    case _:
-                        break
+            case _:
+                self.running = False
 
     def rsa_key_exchange(self):
         """
