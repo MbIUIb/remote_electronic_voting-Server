@@ -3,6 +3,8 @@ import socket
 
 import logging
 
+import rsa
+
 from client_handler import ClientHandler
 
 # logs
@@ -16,8 +18,10 @@ PROTOCOL = socket.SOCK_STREAM
 
 # create and bind server socket
 server_socket = socket.socket(TYPE, PROTOCOL)
-server_socket.bind((os.getenv("HOST"), int(os.getenv("PORT"))))
+server_socket.bind((os.getenv("SOCKET_HOST"), int(os.getenv("SOCKET_PORT"))))
 server_socket.listen(100)
+
+server_pubkey, server_privkey = rsa.newkeys(512)
 
 client_handler_threads = []
 
@@ -26,4 +30,7 @@ while True:
     conn, addr = server_socket.accept()
     logging.info(f"{addr} connected. Connection: {conn}")
 
-    client_handler_threads.append(ClientHandler(f"Thread {addr[0]}", conn).start())
+    client_handler = ClientHandler(f"Thread {addr[0]}_{addr[1]}", conn, server_pubkey, server_privkey)
+    client_handler.start()
+
+    client_handler_threads.append(client_handler)
