@@ -16,6 +16,10 @@ load_dotenv()
 
 
 class ClientHandler(Thread):
+    """
+    Обработчик клиетов для системы дистанционного эоектронного
+    голосования на основе слепой подписи.
+    """
     def __init__(self, name,
                  client_socket: socket.SocketType,
                  server_public_key: rsa.PublicKey,
@@ -33,8 +37,19 @@ class ClientHandler(Thread):
         self.server_pubkey_d = self.server_private_key.d
 
     def run(self):
+        """Запуск работы нового потока обработчика клиентов.
+        Переопределныый метод :py:func:`run()` класса :py:class:`threading.Thread`
+
+        :return: ``None``
+        """
+
         with self.client_socket:
             self.rsa_key_exchange()
+    def client_handler_cycle(self):
+        """Цикл для обработки запросов пользователей.
+
+        :return: ``None``
+        """
 
             while True:
                 print("start")
@@ -76,6 +91,11 @@ class ClientHandler(Thread):
                         break
 
     def rsa_key_exchange(self):
+        """
+        Производит обмен RSA ключами. Первым отправляет ключи клиент, затем сервер.
+
+        :return: ``None``
+        """
         self.client_pubkey_n = int(self.client_socket.recv(4096).decode())
         self.client_pubkey_e = int(self.client_socket.recv(4096).decode())
 
@@ -83,6 +103,20 @@ class ClientHandler(Thread):
         self.client_socket.send(str(self.server_pubkey_e).encode())
 
     def json_encrypt(self, json_data: dict[str: str]) -> dict[str: str]:
+        """
+        Зашифровывает значения переданного словаря.
+
+        :param json_data: словарь, содержащий данные JSON в формате *{"строка": "строка"}*
+        :return: словарь с зашифрованными значениями и кодированными в Base64:
+            *{"строка": "зашифрованная_строка"}*
+        :rtype: dict
+
+        :example:
+        >>> ClientHandler.json_encrypt({"key1": "val1", "key2": "val2"})
+        {'key1': 'NVirdz6JkaTlGxviWvzK0JcAzCoCV4W+1pxHxO0mHvjXWBpY5K2ZevH7F9dAzvgEm9jcdDLqFF1kZHpiL0GXAA==',
+         'key2': 'D4iUG3lVXVLd4T4VdppzOdqegnRyIhDWjobPlIXGSIWEUhQfNnXW7rOy2G7zhfnG5mjQMVEgug5haIUugEkOQw=='}
+        """
+
         encrypt_dict = {}
         for item in json_data:
             encrypt = rsa.encrypt(json_data[item].encode(),
@@ -92,6 +126,19 @@ class ClientHandler(Thread):
         return encrypt_dict
 
     def json_decrypt(self, encrypt_json: dict[str: str]) -> dict[str: str]:
+        """
+        Расшифровывает значения переданного словаря.
+
+        :param dict encrypt_json: словарь, содержащий данные JSON в формате
+            *{"строка": "зашифрованная_строка"}*
+        :return: словарь с расшифрованными значениями: *{"строка": "расшифрованная_строка"}*
+        :rtype: dict
+
+        :example:
+        >>> ClientHandler.json_decrypt({'key1': 'NVirdz6JkaTlGxviWvzK0JcAzCoCV4W+1pxHxO0mHvjXWBpY5K2ZevH7F9dAzvgEm9jcdDLqFF1kZHpiL0GXAA==', 'key2': 'D4iUG3lVXVLd4T4VdppzOdqegnRyIhDWjobPlIXGSIWEUhQfNnXW7rOy2G7zhfnG5mjQMVEgug5haIUugEkOQw=='})
+        {'key1': 'val1', 'key2': 'val2'}
+        """
+
         json_data = {}
         for item in encrypt_json:
             decode = base64.b64decode(encrypt_json[item])
@@ -99,7 +146,25 @@ class ClientHandler(Thread):
         return json_data
 
     @staticmethod
-    def registration(firstname: str, lastname: str, password: str) -> str:
+    def registration_request(firstname: str, lastname: str, password: str) -> str:
+        """Выполняет запрос к базе данных, для проверки регистрации пользователя.
+
+         Если пользователя не существует, регистрирует его и возвращает строку ``Successful``.
+         Если пользователь уже зарегистрирован, возвращает строку ``Voter exists``.
+         В случае ошибки на стороне БД, возвращает строку ``Registration failed``.
+
+        :param str firstname: имя пользователя.
+        :param str lastname: фамилия пользователя.
+        :param str password: пароль пользователя.
+        :return: строка-статус: ``Successful``, ``Voter exists`` или ``Registration failed``
+        :rtype: str
+
+        :example:
+        >>> ClientHandler.registration_request("mbiuib","mbiuib1","mbiuib123")
+        "Voter exists"
+        >>> ClientHandler.registration_request("mbiuib999","mbiuib1123","mbiuib123123")
+        "Successful"
+        """
         data = json.dumps({jk.FIRSTNAME: firstname,
                            jk.LASTNAME: lastname,
                            jk.PASSWORD: password})
@@ -118,7 +183,23 @@ class ClientHandler(Thread):
             return "Successful" if json_data[jk.SUCCESSFUL] else "Registration failed"
 
     @staticmethod
-    def authetication(firstname: str, lastname: str, password: str) -> bool:
+    def authetication_request(firstname: str, lastname: str, password: str) -> str:
+        """Выполняет запрос к базе данных, для аутентификации пользователя.
+
+        В случает успешной аутентификации возвращается ``"True"``, иначе ``"False"``.
+
+        :param str firstname: имя пользователя.
+        :param str lastname: фамилия пользователя.
+        :param str password: пароль пользователя.
+        :return: строка-статус: ``True`` или ``False``
+        :rtype: str
+
+        :example:
+        >>> ClientHandler.authetication_request("mbiuib","mbiuib1","mbiuib123")
+        "True"
+        >>> ClientHandler.authetication_request("mbiuib","mbiuib1","bad_pass")
+        "False"
+        """
         data = json.dumps({jk.FIRSTNAME: firstname,
                            jk.LASTNAME: lastname,
                            jk.PASSWORD: password})
@@ -127,4 +208,4 @@ class ClientHandler(Thread):
                                 data=data)
         json_data = json.loads(response.text)
 
-        return json_data[jk.SUCCESSFUL]
+        return str(json_data[jk.SUCCESSFUL])
