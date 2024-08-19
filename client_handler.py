@@ -20,6 +20,7 @@ class ClientHandler(Thread):
     Обработчик клиетов для системы дистанционного эоектронного
     голосования на основе слепой подписи.
     """
+
     def __init__(self, name,
                  client_socket: socket.SocketType,
                  server_public_key: rsa.PublicKey,
@@ -37,7 +38,7 @@ class ClientHandler(Thread):
         self.server_pubkey_d = self.server_private_key.d
         self.running = True
 
-    def run(self):
+    def run(self) -> None:
         """Запуск работы нового потока обработчика клиентов.
             Переопределныый метод :py:func:`run()` класса :py:class:`threading.Thread`
 
@@ -49,7 +50,7 @@ class ClientHandler(Thread):
 
             self.client_handler_cycle()
 
-    def client_handler_cycle(self):
+    def client_handler_cycle(self) -> None:
         """Цикл для принятия и делегирования обработки запросов пользователей.
 
         :return: ``None``
@@ -57,35 +58,37 @@ class ClientHandler(Thread):
 
         while self.running:
             _recv_data = self.client_socket.recv(16384).decode()
-            if not _recv_data:
+            if not _recv_data or _recv_data == '':
                 self.running = False
+                break
             logging.info(f"{self.client_socket.getpeername()} send {_recv_data}")
 
-            _json_data = self.json_decrypt(json.loads(_recv_data))
+            _json_data = self.decrypt_dict(json.loads(_recv_data))
 
             self.request_matcher(_json_data)
 
-    def request_matcher(self, json_data):
+    def request_matcher(self, json_data) -> None:
         """Производит обработку запросов.
 
         :param dict json_data: словарь, принятый от пользователя и содержащий
             данные для обработки.
         :return: ``None``
         """
+
         match json_data[jk.REQUEST]:
             case jk.REGISTRATION:
-                reg_state = self.registration_request(json_data[jk.FIRSTNAME],
-                                                      json_data[jk.LASTNAME],
-                                                      json_data[jk.PASSWORD])
-                send_data = self.json_encrypt({jk.REG_STATE: reg_state})
+                reg_state = self.db_registration_request(json_data[jk.FIRSTNAME],
+                                                         json_data[jk.LASTNAME],
+                                                         json_data[jk.PASSWORD])
+                send_data = self.encrypt_dict({jk.REG_STATE: reg_state})
                 _json_data = json.dumps(send_data).encode()
                 self.client_socket.send(_json_data)
 
             case jk.AUTENTICATION:
-                auth_state = self.authetication_request(json_data[jk.FIRSTNAME],
-                                                        json_data[jk.LASTNAME],
-                                                        json_data[jk.PASSWORD])
-                send_data = self.json_encrypt({jk.AUTH_STATE: auth_state})
+                auth_state = self.db_authetication_request(json_data[jk.FIRSTNAME],
+                                                           json_data[jk.LASTNAME],
+                                                           json_data[jk.PASSWORD])
+                send_data = self.encrypt_dict({jk.AUTH_STATE: auth_state})
                 _json_data = json.dumps(send_data).encode()
                 self.client_socket.send(_json_data)
 
@@ -102,21 +105,51 @@ class ClientHandler(Thread):
             case _:
                 self.running = False
 
-    def rsa_key_exchange(self):
-        """
-        Производит обмен RSA ключами. Первым отправляет ключи клиент, затем сервер.
+    def rsa_key_exchange(self) -> None:
+        """Производит обмен RSA ключами. Первым отправляет ключи клиент, затем сервер.
 
         :return: ``None``
         """
+
         self.client_pubkey_n = int(self.client_socket.recv(4096).decode())
         self.client_pubkey_e = int(self.client_socket.recv(4096).decode())
 
         self.client_socket.send(str(self.server_pubkey_n).encode())
         self.client_socket.send(str(self.server_pubkey_e).encode())
 
-    def json_encrypt(self, json_data: dict[str: str]) -> dict[str: str]:
+    def encrypt_str(self, string_to_encrypt: str) -> str:
+        """Зашифровывает строку алгоритмом RSA и возвращает строку, закодированную в Base64.
+
+        :param str string_to_encrypt: строка для шифрования.
+        :return: зашифрованная строка.
+        :rtype: str
+
+        :example:
+        >>> ClientHandler.encrypt_str("string")
+        "bTuT0pIxF3hbawCJpZqLdELL3ekeuhHRSf9qiLkFVvUvE86bHEUG9WgvJ2UYQ+oMZaetv6EL6Ae/T7E1+XYmjQ=="
         """
-        Зашифровывает значения переданного словаря.
+
+        encrypt_str = rsa.encrypt(string_to_encrypt.encode(),
+                                  rsa.PublicKey(self.client_pubkey_n,
+                                                self.client_pubkey_e))
+        return base64.b64encode(encrypt_str).decode()
+
+    def decrypt_str(self, string_to_decrypt: str) -> str:
+        """Принимает строку, кодированную Base64 и расшифровывает алгоитмом RSA.
+
+        :param str string_to_decrypt: строка для расшифровывания.
+        :return: расшифрованная строка.
+        :rtype: str
+
+        :example:
+        >>>ClientHandler.decrypt_str("bTuT0pIxF3hbawCJpZqLdELL3ekeuhHRSf9qiLkFVvUvE86bHEUG9WgvJ2UYQ+oMZaetv6EL6Ae/T7E1+XYmjQ==")
+        "string"
+        """
+        decode_str = base64.b64decode(string_to_decrypt)
+        return rsa.decrypt(decode_str, self.server_private_key).decode()
+
+    def encrypt_dict(self, json_data: dict[str: str]) -> dict[str: str]:
+        """Зашифровывает значения переданного словаря.
 
         :param json_data: словарь, содержащий данные JSON в формате *{"строка": "строка"}*
         :return: словарь с зашифрованными значениями и кодированными в Base64:
@@ -124,22 +157,18 @@ class ClientHandler(Thread):
         :rtype: dict
 
         :example:
-        >>> ClientHandler.json_encrypt({"key1": "val1", "key2": "val2"})
+        >>> ClientHandler.encrypt_dict({"key1": "val1", "key2": "val2"})
         {'key1': 'NVirdz6JkaTlGxviWvzK0JcAzCoCV4W+1pxHxO0mHvjXWBpY5K2ZevH7F9dAzvgEm9jcdDLqFF1kZHpiL0GXAA==',
          'key2': 'D4iUG3lVXVLd4T4VdppzOdqegnRyIhDWjobPlIXGSIWEUhQfNnXW7rOy2G7zhfnG5mjQMVEgug5haIUugEkOQw=='}
         """
 
         encrypt_dict = {}
-        for item in json_data:
-            encrypt = rsa.encrypt(json_data[item].encode(),
-                                  rsa.PublicKey(self.client_pubkey_n,
-                                                self.client_pubkey_e))
-            encrypt_dict[item] = base64.b64encode(encrypt).decode()
+        for key in json_data:
+            encrypt_dict[key] = self.encrypt_str(json_data[key])
         return encrypt_dict
 
-    def json_decrypt(self, encrypt_json: dict[str: str]) -> dict[str: str]:
-        """
-        Расшифровывает значения переданного словаря.
+    def decrypt_dict(self, encrypt_json: dict[str: str]) -> dict[str: str]:
+        """Расшифровывает значения переданного словаря.
 
         :param dict encrypt_json: словарь, содержащий данные JSON в формате
             *{"строка": "зашифрованная_строка"}*
@@ -147,18 +176,17 @@ class ClientHandler(Thread):
         :rtype: dict
 
         :example:
-        >>> ClientHandler.json_decrypt({'key1': 'NVirdz6JkaTlGxviWvzK0JcAzCoCV4W+1pxHxO0mHvjXWBpY5K2ZevH7F9dAzvgEm9jcdDLqFF1kZHpiL0GXAA==', 'key2': 'D4iUG3lVXVLd4T4VdppzOdqegnRyIhDWjobPlIXGSIWEUhQfNnXW7rOy2G7zhfnG5mjQMVEgug5haIUugEkOQw=='})
+        >>> ClientHandler.decrypt_dict({'key1': 'NVirdz6JkaTlGxviWvzK0JcAzCoCV4W+1pxHxO0mHvjXWBpY5K2ZevH7F9dAzvgEm9jcdDLqFF1kZHpiL0GXAA==', 'key2': 'D4iUG3lVXVLd4T4VdppzOdqegnRyIhDWjobPlIXGSIWEUhQfNnXW7rOy2G7zhfnG5mjQMVEgug5haIUugEkOQw=='},)
         {'key1': 'val1', 'key2': 'val2'}
         """
 
         json_data = {}
-        for item in encrypt_json:
-            decode = base64.b64decode(encrypt_json[item])
-            json_data[item] = rsa.decrypt(decode, self.server_private_key).decode()
+        for key in encrypt_json:
+            json_data[key] = self.decrypt_str(encrypt_json[key])
         return json_data
 
     @staticmethod
-    def registration_request(firstname: str, lastname: str, password: str) -> str:
+    def db_registration_request(firstname: str, lastname: str, password: str) -> str:
         """Выполняет запрос к базе данных, для проверки регистрации пользователя.
 
          Если пользователя не существует, регистрирует его и возвращает строку ``Successful``.
@@ -172,11 +200,12 @@ class ClientHandler(Thread):
         :rtype: str
 
         :example:
-        >>> ClientHandler.registration_request("mbiuib","mbiuib1","mbiuib123")
+        >>> ClientHandler.db_registration_request("mbiuib","mbiuib1","mbiuib123")
         "Voter exists"
-        >>> ClientHandler.registration_request("mbiuib999","mbiuib1123","mbiuib123123")
+        >>> ClientHandler.db_registration_request("mbiuib999","mbiuib1123","mbiuib123123")
         "Successful"
         """
+
         data = json.dumps({jk.FIRSTNAME: firstname,
                            jk.LASTNAME: lastname,
                            jk.PASSWORD: password})
@@ -195,7 +224,7 @@ class ClientHandler(Thread):
             return "Successful" if json_data[jk.SUCCESSFUL] else "Registration failed"
 
     @staticmethod
-    def authetication_request(firstname: str, lastname: str, password: str) -> str:
+    def db_authetication_request(firstname: str, lastname: str, password: str) -> str:
         """Выполняет запрос к базе данных, для аутентификации пользователя.
 
         В случает успешной аутентификации возвращается ``"True"``, иначе ``"False"``.
@@ -207,11 +236,12 @@ class ClientHandler(Thread):
         :rtype: str
 
         :example:
-        >>> ClientHandler.authetication_request("mbiuib","mbiuib1","mbiuib123")
+        >>> ClientHandler.db_authetication_request("mbiuib","mbiuib1","mbiuib123")
         "True"
-        >>> ClientHandler.authetication_request("mbiuib","mbiuib1","bad_pass")
+        >>> ClientHandler.db_authetication_request("mbiuib","mbiuib1","bad_pass")
         "False"
         """
+
         data = json.dumps({jk.FIRSTNAME: firstname,
                            jk.LASTNAME: lastname,
                            jk.PASSWORD: password})
