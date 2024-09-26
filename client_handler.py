@@ -1,6 +1,6 @@
+import ast
 import base64
 import json
-import logging
 import os
 import socket
 from threading import Thread
@@ -16,58 +16,43 @@ load_dotenv()
 
 
 class ClientHandler(Thread):
-    """
-    Обработчик клиетов для системы дистанционного эоектронного
-    голосования на основе слепой подписи.
-    """
-
-    def __init__(self, name,
-                 client_socket: socket.SocketType,
+    def __init__(self, client_socket: socket.SocketType,
                  server_public_key: rsa.PublicKey,
                  server_private_key: rsa.PrivateKey):
-
-        Thread.__init__(self, name=name)
-        self.name = name
+        Thread.__init__(self)
         self.client_socket = client_socket
         self.server_public_key = server_public_key
         self.server_private_key = server_private_key
-        self.client_pubkey_n = None
+
+        self.server_pubkey_n = server_public_key.n
+        self.server_pubkey_e = server_public_key.e
         self.client_pubkey_e = None
-        self.server_pubkey_n = self.server_public_key.n
-        self.server_pubkey_e = self.server_public_key.e
-        self.server_pubkey_d = self.server_private_key.d
+        self.client_pubkey_n = None
+
         self.running = True
 
-    def run(self) -> None:
+        self.authorized = False
+
+    def run(self):
         """Запуск работы нового потока обработчика клиентов.
             Переопределныый метод :py:func:`run()` класса :py:class:`threading.Thread`
 
         :return: ``None``
-        """
+       """
 
         with self.client_socket:
-            self.rsa_key_exchange()
+            while self.running:
+                recv_data = self.client_socket.recv(16384).decode()
+                if not recv_data:
+                    self.running = False
+                    break
 
-            self.client_handler_cycle()
+                # {"request": "something", "item1": "val1", ...}
+                json_data = json.loads(recv_data)
 
-    def client_handler_cycle(self) -> None:
-        """Цикл для принятия и делегирования обработки запросов пользователей.
+                self.requet_matcher(json_data)
 
-        :return: ``None``
-        """
-
-        while self.running:
-            _recv_data = self.client_socket.recv(16384).decode()
-            if not _recv_data or _recv_data == '':
-                self.running = False
-                break
-            logging.info(f"{self.client_socket.getpeername()} send {_recv_data}")
-
-            _json_data = self.decrypt_dict(json.loads(_recv_data))
-
-            self.request_matcher(_json_data)
-
-    def request_matcher(self, json_data) -> None:
+    def requet_matcher(self, json_data: dict[str: str]):
         """Производит обработку запросов.
 
         :param dict json_data: словарь, принятый от пользователя и содержащий
@@ -76,46 +61,140 @@ class ClientHandler(Thread):
         """
 
         match json_data[jk.REQUEST]:
+            case jk.KEY_EXCHANGE:
+                # {"request": "key_exchange",
+                # "client_pubkey_n": "key_n...",
+                # "client_pubkey_e": "key_e..."}
+                self.rsa_key_exchange(json_data)
+
             case jk.REGISTRATION:
-                reg_state = self.db_registration_request(json_data[jk.FIRSTNAME],
-                                                         json_data[jk.LASTNAME],
-                                                         json_data[jk.PASSWORD])
-                send_data = self.encrypt_dict({jk.REG_STATE: reg_state})
-                _json_data = json.dumps(send_data).encode()
-                self.client_socket.send(_json_data)
+                # {"request": "registration",
+                # "firstname": "mbiuib",
+                # "lastname": "mbiuiblastname",
+                # "password": "rsa_passwd_in_base64"}
+                self.registration_handler(json_data)
 
             case jk.AUTENTICATION:
-                auth_state = self.db_authetication_request(json_data[jk.FIRSTNAME],
-                                                           json_data[jk.LASTNAME],
-                                                           json_data[jk.PASSWORD])
-                send_data = self.encrypt_dict({jk.AUTH_STATE: auth_state})
-                _json_data = json.dumps(send_data).encode()
-                self.client_socket.send(_json_data)
+                # {"request": "authentication",
+                # "firstname": "mbiuib",
+                # "lastname": "mbiuiblastname",
+                # "password": "rsa_passwd_in_base64"}
+                self.authorized = self.autentication_handler(json_data)
+                print(self.authorized)
 
-                if auth_state:
-                    stage_1 = self.client_socket.recv(1024).decode()
-                    print(stage_1)
-                    # stage 1 of cryptography protocol
-                    # ...
-                    # ...
-
-                else:
-                    self.running = False
+            case jk.CRYPT_STAGE_1_INIT:
+                # {"request": "CRYPT_STAGE_1_INIT",
+                # "firstname": "mbiuib",
+                # "lastname": "mbiuiblastname"}
+                self.crypt_stge_1_init_handler(json_data)
 
             case _:
-                self.running = False
+                print(json_data)
 
-    def rsa_key_exchange(self) -> None:
+    def rsa_key_exchange(self, json_data: dict[str: str]):
         """Производит обмен RSA ключами. Первым отправляет ключи клиент, затем сервер.
 
         :return: ``None``
         """
 
-        self.client_pubkey_n = int(self.client_socket.recv(4096).decode())
-        self.client_pubkey_e = int(self.client_socket.recv(4096).decode())
+        self.client_pubkey_n = int(json_data[jk.KEYEX_CLIENT_PUB_N])
+        self.client_pubkey_e = int(json_data[jk.KEYEX_CLIENT_PUB_E])
 
-        self.client_socket.send(str(self.server_pubkey_n).encode())
-        self.client_socket.send(str(self.server_pubkey_e).encode())
+        send_data = {jk.KEYEX_SERVER_PUB_N: str(self.server_pubkey_n),
+                     jk.KEYEX_SERVER_PUB_E: str(self.server_pubkey_e)}
+        self.send_json(send_data)
+
+    def registration_handler(self, json_data: dict[str: str]) -> bool:
+        """Производит обработку запроса регистрации.
+
+        Для осуществления данного запроса, клиенту необходимо отправить JSON,
+        содержащий следующие данные:
+        *{
+        "request": "registration",
+        "firstname": "clients name",
+        "lastname": "clients lastname",
+        "password": "clients password"
+        }*
+
+        Отправляет ответ вида:
+        *{"reg_state": "Successful"}*,
+        *{"reg_state": "Voter exists"}*,
+        *{"reg_state": "Registration failed"}*
+
+
+        :param dict json_data: словарь, содержащий принятые данные клиента.
+        :return: ``True`` или ``False``
+        """
+
+        json_data = self.decrypt_dict(json_data)
+        reg_state = self.db_registration_request(json_data[jk.FIRSTNAME],
+                                                 json_data[jk.LASTNAME],
+                                                 json_data[jk.PASSWORD])
+        send_data = self.encrypt_dict({jk.REG_STATE: reg_state})
+        _json_data = json.dumps(send_data).encode()
+        self.client_socket.send(_json_data)
+
+        return True if reg_state == "Successful" else False
+
+    def autentication_handler(self, json_data: dict[str: str]) -> bool:
+        """Производит обработку запроса аутентификации.
+
+        Для осуществления данного запроса, клиенту необходимо отправить JSON,
+        содержащий следующие данные:
+        *{
+        "request": "authentication",
+        "firstname": "clients name",
+        "lastname": "clients lastname",
+        "password": "clients password"
+        }*
+
+        Отправляет ответ вида:
+        *{"auth_state": "True"}*,
+        *{"auth_state": "False"}*
+
+        После обработки изменится *self.authorized* на ``True`` или ``False``
+
+        :param dict json_data: словарь, содержащий принятые данные клиента.
+        :return: ``True`` или ``False``
+        """
+
+        json_data = self.decrypt_dict(json_data)
+        auth_state = self.db_authetication_request(json_data[jk.FIRSTNAME],
+                                                   json_data[jk.LASTNAME],
+                                                   json_data[jk.PASSWORD])
+        send_data = self.encrypt_dict({jk.AUTH_STATE: auth_state})
+        _json_data = json.dumps(send_data).encode()
+        self.client_socket.send(_json_data)
+
+        return ast.literal_eval(auth_state)
+
+    def crypt_stge_1_init_handler(self, json_data: dict[str: str]) -> None:
+        """Производит обработку запроса даннотых для инициализации криптографического
+        протокола.
+
+        Для осуществления данного запроса, клиенту необходимо отправить JSON,
+        содержащий следующие данные:
+        *{
+        "request": "CRYPT_STAGE_1_INIT",
+        "firstname": "mbiuib",
+        "lastname": "mbiuiblastname"
+        }*
+
+        Отправляет ответ вида:
+        *{"id": 6, "iden_num_len": 10}*
+
+        :param dict json_data: словарь, содержащий принятые данные клиента.
+        :return: ``None``
+        """
+
+        send_data = self.encrypt_dict(self.db_crypt_stage_1_request(json_data[jk.FIRSTNAME],
+                                                                    json_data[jk.LASTNAME]))
+        _json_data = json.dumps(send_data).encode()
+        self.client_socket.send(_json_data)
+
+    def send_json(self, message_dict: dict[str: str]):
+        json_data = json.dumps(message_dict)
+        self.client_socket.send(json_data.encode())
 
     def encrypt_str(self, string_to_encrypt: str) -> str:
         """Зашифровывает строку алгоритмом RSA и возвращает строку, закодированную в Base64.
@@ -164,7 +243,10 @@ class ClientHandler(Thread):
 
         encrypt_dict = {}
         for key in json_data:
-            encrypt_dict[key] = self.encrypt_str(json_data[key])
+            if key == jk.PASSWORD:
+                encrypt_dict[key] = self.encrypt_str(json_data[key])
+            else:
+                encrypt_dict[key] = json_data[key]
         return encrypt_dict
 
     def decrypt_dict(self, encrypt_json: dict[str: str]) -> dict[str: str]:
@@ -182,7 +264,11 @@ class ClientHandler(Thread):
 
         json_data = {}
         for key in encrypt_json:
-            json_data[key] = self.decrypt_str(encrypt_json[key])
+            if key == jk.PASSWORD:
+                json_data[key] = self.decrypt_str(encrypt_json[key])
+            else:
+                json_data[key] = encrypt_json[key]
+
         return json_data
 
     @staticmethod
@@ -251,3 +337,28 @@ class ClientHandler(Thread):
         json_data = json.loads(response.text)
 
         return str(json_data[jk.SUCCESSFUL])
+
+    @staticmethod
+    def db_crypt_stage_1_request(firstname: str, lastname: str) -> dict[str: str]:
+        """Выполняет запрос к базе данных, для возврата id избирателя и длину
+        для генерации идентификационного номмера.
+
+        :param str firstname: имя пользователя.
+        :param str lastname: фамилия пользователя.
+        :return: словарь, содержащий id пользователя и длину для генерации
+                 идентификационного номмера
+        :rtype: dict[str: str]
+
+        :example:
+        >>> ClientHandler.db_crypt_stage_1_request("mbiuib","mbiuib")
+        {'id': 6, 'iden_num_len': 10}
+        """
+
+        data = json.dumps({jk.FIRSTNAME: firstname,
+                           jk.LASTNAME: lastname})
+        response = requests.get(os.getenv("API_URL_VOTER_INFO"),
+                                headers=jk.JSON_HEADERS,
+                                data=data)
+        json_data = json.loads(response.text)
+
+        return json_data

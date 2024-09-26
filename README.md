@@ -1,6 +1,6 @@
 # Система дистанционного электронного голосования
 
-# [Notion](https://mbiuib.notion.site/193d3f90e7384a018d0a0256b3b6cebd?pvs=4)
+# [Notion version](https://mbiuib.notion.site/193d3f90e7384a018d0a0256b3b6cebd?pvs=4)
 
 # Теория
 
