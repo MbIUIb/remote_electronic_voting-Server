@@ -101,7 +101,7 @@ class ClientHandler(Thread):
 
             case jk.BLIND_SIGN:
                 # {"request": "blind_sign",
-                # "blind_sign_mask_iden_num": [132, 123, 123, ...]}
+                # "blind_sign_mask_iden_num": [132, 123, 123]}
                 self.blind_sign_handler(json_data)
 
             case _:
@@ -212,6 +212,23 @@ class ClientHandler(Thread):
         self.client_socket.send(_json_data)
 
     def blind_sign_handler(self, json_data: dict):
+        """Производит обработку протокола слепой подписи секреного идентификационного
+        номера избирателя
+
+        Для осуществления данного запроса, клиенту необходимо отправить JSON,
+        содержащий следующие данные:
+        *{
+        "request": ""blind_sign"",
+        "blind_sign_mask_iden_num": [voter_signed_masked_iden_num, voter_signed_n_id, n_id]
+        }*
+
+        Отправляет ответ вида:
+        *{"blind_sign_response": 321}*,
+        *{"blind_sign_response": "failed"}*
+
+        :param dict json_data: словарь, содержащий принятые данные клиента.
+        :return: ``None``
+        """
         self.M_1 = json_data[jk.BLIND_MASK_IDEN_NUM]
         self.external_n_id = self.M_1[-1]
         self.cryptogramm_I_n_id = self.M_1[:-1]
@@ -233,6 +250,13 @@ class ClientHandler(Thread):
         self.send_json(send_data)
 
     def send_json(self, message_dict: dict[str: str]):
+        """Производит отправку сериализованного JSON,
+        преобразованного из переданного словаря.
+
+        :param message_dict: словарь для конвертации в JSON.
+        :return: ``None``
+        """
+
         json_data = json.dumps(message_dict)
         self.client_socket.send(json_data.encode())
 
@@ -380,8 +404,8 @@ class ClientHandler(Thread):
 
     @staticmethod
     def db_crypt_stage_1_request(firstname: str, lastname: str) -> dict[str: str]:
-        """Выполняет запрос к базе данных, для возврата id избирателя и длину
-        для генерации идентификационного номмера.
+        """Выполняет запрос к базе данных, для возврата id избирателя и длины
+        для генерации серетного идентификационного номмера.
 
         :param str firstname: имя пользователя.
         :param str lastname: фамилия пользователя.
@@ -404,7 +428,19 @@ class ClientHandler(Thread):
         return json_data
 
     @staticmethod
-    def db_get_n_id_by_name(firstname: str, lastname: str):
+    def db_get_n_id_by_name(firstname: str, lastname: str) -> int:
+        """Выполняет запрос к базе данных, для возврата id избирателя.
+
+        :param str firstname: имя пользователя.
+        :param str lastname: фамилия пользователя.
+        :return: id пользователя.
+        :rtype: int
+
+        :example:
+        >>> ClientHandler.db_crypt_stage_1_request("mbiuib","mbiuib")
+        6
+        """
+
         data = json.dumps({jk.FIRSTNAME: firstname,
                            jk.LASTNAME: lastname})
         response = requests.get(os.getenv("API_URL_VOTER_INFO"),
