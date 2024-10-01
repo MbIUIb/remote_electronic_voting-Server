@@ -452,22 +452,22 @@ class ClientHandler(Thread):
         return json_data[jk.VOTER_ID]
 
     @staticmethod
-    def db_insert_m1(encrypted_iden_num: int, n_id: int, external_n_id: int):
+    def db_insert_m1(encrypted_iden_num: int, encrypted_n_id: int, external_n_id: int):
         """Выполняет запрос к базе данных, для возврата id избирателя.
 
-        :param str encrypted_iden_num: имя пользователя.
-        :param int n_id: фамилия пользователя.
-        :param int external_n_id: фамилия пользователя.
+        :param str encrypted_iden_num: зашифрованный секретный идентификационный номер.
+        :param int encrypted_n_id: зашифрованный идентификационный номер избирателя.
+        :param int external_n_id: идентификационный номер избирателя в открытом виде.
         :return: строка-состояние записи сообщения M_1.
         :rtype: str
 
         :example:
-        >>> ClientHandler.db_insert_m1(123, 345, 345)
+        >>> ClientHandler.db_insert_m1(123,345,345)
         "successful"
         """
 
         data = json.dumps({jk.ENC_IDEN_NUM: encrypted_iden_num,
-                           jk.N_ID: n_id,
+                           jk.N_ID: encrypted_n_id,
                            jk.EXTERNAL_N_ID: external_n_id})
         response = requests.post(os.getenv("API_URL_M1"),
                                  headers=jk.JSON_HEADERS,
