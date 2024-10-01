@@ -26,6 +26,8 @@ class JsonKeys:
     BLIND_MASK_IDEN_NUM = "blind_mask_iden_num"
     BLIND_SIGN_RESPONSE = "blind_sign_response"
     BLIND_SIGN_MASK_IDEN_NUM = "blind_sign_mask_iden_num"
+    BLIND_SIGN_CONFIRM_REQUEST = "blind_sign_confirm_request"
+    BLIND_SIGN_CONFIRM = "blind_sign_confirm"
 
     VOTER_ID = "id"
     N_ID = "n_id"

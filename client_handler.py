@@ -104,6 +104,9 @@ class ClientHandler(Thread):
                 # "blind_sign_mask_iden_num": [132, 123, 123]}
                 self.blind_sign_handler(json_data)
 
+            case jk.BLIND_SIGN_CONFIRM_REQUEST:
+                self.blind_sign_m1_insert_handler(json_data)
+
             case _:
                 print(json_data)
 
@@ -245,10 +248,14 @@ class ClientHandler(Thread):
                                                self.server_private_key.d,
                                                self.server_private_key.n)
             send_data = {jk.BLIND_SIGN_RESPONSE: self.signed_masked_iden_num}
-            self.db_insert_m1(*self.M_1)
         else:
             send_data = {jk.BLIND_SIGN_RESPONSE: jk.FAILED}
         self.send_json(send_data)
+
+    def blind_sign_m1_insert_handler(self, json_data: dict):
+        print(json_data)
+        if json_data[jk.BLIND_SIGN_CONFIRM]:
+            self.db_insert_m1(*self.M_1)
 
     def send_json(self, message_dict: dict[str: str]):
         """Производит отправку сериализованного JSON,
@@ -260,6 +267,16 @@ class ClientHandler(Thread):
 
         json_data = json.dumps(message_dict)
         self.client_socket.send(json_data.encode())
+
+    def recv_json(self):
+        """Производит отправку сериализованного JSON,
+        преобразованного из переданного словаря.
+
+        :return: словарь с данными
+        :rtype: dict
+        """
+
+        return json.loads(self.client_socket.recv(16384).decode())
 
     def encrypt_str(self, string_to_encrypt: str) -> str:
         """Зашифровывает строку алгоритмом RSA и возвращает строку, закодированную в Base64.

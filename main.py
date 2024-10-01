@@ -45,4 +45,4 @@ while True:
         if not client_thread.is_alive():
             client_handler_threads.remove(client_thread)
 
-    print(client_handler_threads)
+    # print(client_handler_threads)
