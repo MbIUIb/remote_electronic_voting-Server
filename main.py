@@ -25,7 +25,7 @@ server_socket = socket.socket(TYPE, PROTOCOL)
 server_socket.bind((os.getenv("SOCKET_HOST"), int(os.getenv("SOCKET_PORT"))))
 server_socket.listen(100)
 
-server_pubkey, server_privkey = rsa.newkeys(512)
+server_pubkey, server_privkey = rsa.newkeys(int(os.getenv("RSA_KEY_LEN")))
 
 client_handler_threads = []
 

@@ -9,6 +9,7 @@ import requests
 import rsa
 from dotenv import load_dotenv
 
+from crypt import sign, unsign_list
 from json_keys import JsonKeys as jk
 
 # env
@@ -23,6 +24,8 @@ class ClientHandler(Thread):
         self.client_socket = client_socket
         self.server_public_key = server_public_key
         self.server_private_key = server_private_key
+        self.blind_sign_server_public_key = None
+        self.blind_sign_server_private_key = None
 
         self.server_pubkey_n = server_public_key.n
         self.server_pubkey_e = server_public_key.e
@@ -30,8 +33,17 @@ class ClientHandler(Thread):
         self.client_pubkey_n = None
 
         self.running = True
-
         self.authorized = False
+
+        self.auth_firstname = None
+        self.auth_lastname = None
+        self.M_1 = None
+        self.external_n_id = None
+        self.cryptogramm_I_n_id = None  # [E(I_m), E(n_id), n_id]
+        self.decrypted_I_n_id = None  # [I_m, n_id]
+        self.n_id = None
+        self.masked_iden_num = None  # I_m
+        self.signed_masked_iden_num = None  # I_sm
 
     def run(self):
         """Запуск работы нового потока обработчика клиентов.
@@ -80,13 +92,17 @@ class ClientHandler(Thread):
                 # "lastname": "mbiuiblastname",
                 # "password": "rsa_passwd_in_base64"}
                 self.authorized = self.autentication_handler(json_data)
-                print(self.authorized)
 
             case jk.CRYPT_STAGE_1_INIT:
                 # {"request": "CRYPT_STAGE_1_INIT",
                 # "firstname": "mbiuib",
                 # "lastname": "mbiuiblastname"}
                 self.crypt_stge_1_init_handler(json_data)
+
+            case jk.BLIND_SIGN:
+                # {"request": "blind_sign",
+                # "blind_sign_mask_iden_num": [132, 123, 123, ...]}
+                self.blind_sign_handler(json_data)
 
             case _:
                 print(json_data)
@@ -159,6 +175,9 @@ class ClientHandler(Thread):
         """
 
         json_data = self.decrypt_dict(json_data)
+        self.auth_firstname = json_data[jk.FIRSTNAME]
+        self.auth_lastname = json_data[jk.LASTNAME]
+
         auth_state = self.db_authetication_request(json_data[jk.FIRSTNAME],
                                                    json_data[jk.LASTNAME],
                                                    json_data[jk.PASSWORD])
@@ -169,7 +188,7 @@ class ClientHandler(Thread):
         return ast.literal_eval(auth_state)
 
     def crypt_stge_1_init_handler(self, json_data: dict[str: str]) -> None:
-        """Производит обработку запроса даннотых для инициализации криптографического
+        """Производит обработку запроса данных для инициализации криптографического
         протокола.
 
         Для осуществления данного запроса, клиенту необходимо отправить JSON,
@@ -191,6 +210,27 @@ class ClientHandler(Thread):
                                                                     json_data[jk.LASTNAME]))
         _json_data = json.dumps(send_data).encode()
         self.client_socket.send(_json_data)
+
+    def blind_sign_handler(self, json_data: dict):
+        self.M_1 = json_data[jk.BLIND_MASK_IDEN_NUM]
+        self.external_n_id = self.M_1[-1]
+        self.cryptogramm_I_n_id = self.M_1[:-1]
+
+        self.decrypted_I_n_id = unsign_list(self.cryptogramm_I_n_id,
+                                            self.client_pubkey_e,
+                                            self.client_pubkey_n)
+
+        self.masked_iden_num, self.n_id = self.decrypted_I_n_id
+
+        if (int(self.external_n_id) == int(self.n_id) and
+                int(self.n_id) == self.db_get_n_id_by_name(self.auth_firstname, self.auth_lastname)):
+            self.signed_masked_iden_num = sign(self.masked_iden_num,
+                                               self.server_private_key.d,
+                                               self.server_private_key.n)
+            send_data = {jk.BLIND_SIGN_RESPONSE: self.signed_masked_iden_num}
+        else:
+            send_data = {jk.BLIND_SIGN_RESPONSE: jk.FAILED}
+        self.send_json(send_data)
 
     def send_json(self, message_dict: dict[str: str]):
         json_data = json.dumps(message_dict)
@@ -362,3 +402,14 @@ class ClientHandler(Thread):
         json_data = json.loads(response.text)
 
         return json_data
+
+    @staticmethod
+    def db_get_n_id_by_name(firstname: str, lastname: str):
+        data = json.dumps({jk.FIRSTNAME: firstname,
+                           jk.LASTNAME: lastname})
+        response = requests.get(os.getenv("API_URL_VOTER_INFO"),
+                                headers=jk.JSON_HEADERS,
+                                data=data)
+        json_data = json.loads(response.text)
+
+        return json_data[jk.VOTER_ID]
