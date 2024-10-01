@@ -28,6 +28,9 @@ class JsonKeys:
     BLIND_SIGN_MASK_IDEN_NUM = "blind_sign_mask_iden_num"
 
     VOTER_ID = "id"
+    N_ID = "n_id"
+    EXTERNAL_N_ID = "external_n_id"
+    ENC_IDEN_NUM = "encrypted_iden_num"
     IDEN_NUM_LEN = "iden_num_len"
     FIRSTNAME = "firstname"
     LASTNAME = "lastname"

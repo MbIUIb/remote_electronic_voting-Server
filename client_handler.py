@@ -245,6 +245,7 @@ class ClientHandler(Thread):
                                                self.server_private_key.d,
                                                self.server_private_key.n)
             send_data = {jk.BLIND_SIGN_RESPONSE: self.signed_masked_iden_num}
+            self.db_insert_m1(*self.M_1)
         else:
             send_data = {jk.BLIND_SIGN_RESPONSE: jk.FAILED}
         self.send_json(send_data)
@@ -437,7 +438,7 @@ class ClientHandler(Thread):
         :rtype: int
 
         :example:
-        >>> ClientHandler.db_crypt_stage_1_request("mbiuib","mbiuib")
+        >>> ClientHandler.db_get_n_id_by_name("mbiuib","mbiuib")
         6
         """
 
@@ -449,3 +450,28 @@ class ClientHandler(Thread):
         json_data = json.loads(response.text)
 
         return json_data[jk.VOTER_ID]
+
+    @staticmethod
+    def db_insert_m1(encrypted_iden_num: int, n_id: int, external_n_id: int):
+        """Выполняет запрос к базе данных, для возврата id избирателя.
+
+        :param str encrypted_iden_num: имя пользователя.
+        :param int n_id: фамилия пользователя.
+        :param int external_n_id: фамилия пользователя.
+        :return: строка-состояние записи сообщения M_1.
+        :rtype: str
+
+        :example:
+        >>> ClientHandler.db_insert_m1(123, 345, 345)
+        "successful"
+        """
+
+        data = json.dumps({jk.ENC_IDEN_NUM: encrypted_iden_num,
+                           jk.N_ID: n_id,
+                           jk.EXTERNAL_N_ID: external_n_id})
+        response = requests.post(os.getenv("API_URL_M1"),
+                                 headers=jk.JSON_HEADERS,
+                                 data=data)
+        json_data = json.loads(response.text)
+
+        return json_data[jk.SUCCESSFUL]
