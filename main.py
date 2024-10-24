@@ -23,9 +23,10 @@ PROTOCOL = socket.SOCK_STREAM
 # create and bind server socket
 server_socket = socket.socket(TYPE, PROTOCOL)
 server_socket.bind((os.getenv("SOCKET_HOST"), int(os.getenv("SOCKET_PORT"))))
-server_socket.listen(100)
+server_socket.listen(1000)
 
 server_pubkey, server_privkey = rsa.newkeys(int(os.getenv("RSA_KEY_LEN")))
+server_blind_pubkey, server_blind_privkey = rsa.newkeys(int(os.getenv("RSA_BLIND_KEY_LEN")))
 
 client_handler_threads = []
 
@@ -35,7 +36,7 @@ while True:
     logging.info(f"{addr} connected. Connection: {conn}")
 
     # client_handler = ClientHandler(f"Thread {addr[0]}_{addr[1]}", conn, server_pubkey, server_privkey)
-    client_handler = ClientHandler(conn, server_pubkey, server_privkey)
+    client_handler = ClientHandler(conn, server_pubkey, server_privkey, server_blind_pubkey, server_blind_privkey)
     client_handler.start()
 
     client_handler_threads.append(client_handler)
@@ -45,4 +46,4 @@ while True:
         if not client_thread.is_alive():
             client_handler_threads.remove(client_thread)
 
-    # print(client_handler_threads)
+    print(len(client_handler_threads))

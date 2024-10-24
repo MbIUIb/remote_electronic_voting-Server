@@ -2,6 +2,7 @@ class JsonKeys:
     REQUEST = "request"
 
     KEY_EXCHANGE = "key_exchange"
+    BLIND_KEY_EXCHANGE = "blind_key_exchange"
     KEYEX_CLIENT_PUB_N = "client_pubkey_n"
     KEYEX_CLIENT_PUB_E = "client_pubkey_e"
     KEYEX_SERVER_PUB_N = "server_pubkey_n"

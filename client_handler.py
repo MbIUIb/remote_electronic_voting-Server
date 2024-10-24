@@ -9,7 +9,7 @@ import requests
 import rsa
 from dotenv import load_dotenv
 
-from crypt import sign, unsign_list
+from crypt import sign, unsign_list, unpack_I_n_id, unsign
 from json_keys import JsonKeys as jk
 
 # env
@@ -19,18 +19,30 @@ load_dotenv()
 class ClientHandler(Thread):
     def __init__(self, client_socket: socket.SocketType,
                  server_public_key: rsa.PublicKey,
-                 server_private_key: rsa.PrivateKey):
+                 server_private_key: rsa.PrivateKey,
+                 server_blind_public_key: rsa.PublicKey,
+                 server_blind_private_key: rsa.PrivateKey
+                 ):
+
         Thread.__init__(self)
         self.client_socket = client_socket
-        self.server_public_key = server_public_key
-        self.server_private_key = server_private_key
+
         self.blind_sign_server_public_key = None
         self.blind_sign_server_private_key = None
 
+        self.server_public_key = server_public_key
+        self.server_private_key = server_private_key
         self.server_pubkey_n = server_public_key.n
         self.server_pubkey_e = server_public_key.e
         self.client_pubkey_e = None
         self.client_pubkey_n = None
+
+        self.server_blind_public_key = server_blind_public_key
+        self.server_blind_private_key = server_blind_private_key
+        self.server_blind_pubkey_n = server_blind_public_key.n
+        self.server_blind_pubkey_e = server_blind_public_key.e
+        self.client_blind_pubkey_n = None
+        self.client_blind_pubkey_e = None
 
         self.running = True
         self.authorized = False
@@ -79,6 +91,12 @@ class ClientHandler(Thread):
                 # "client_pubkey_e": "key_e..."}
                 self.rsa_key_exchange(json_data)
 
+            case jk.BLIND_KEY_EXCHANGE:
+                # {"request": "blind_key_exchange",
+                # "client_pubkey_n": "key_n...",
+                # "client_pubkey_e": "key_e..."}
+                self.blind_rsa_key_exchange(json_data)
+
             case jk.REGISTRATION:
                 # {"request": "registration",
                 # "firstname": "mbiuib",
@@ -121,6 +139,19 @@ class ClientHandler(Thread):
 
         send_data = {jk.KEYEX_SERVER_PUB_N: str(self.server_pubkey_n),
                      jk.KEYEX_SERVER_PUB_E: str(self.server_pubkey_e)}
+        self.send_json(send_data)
+
+    def blind_rsa_key_exchange(self, json_data: dict[str: str]):
+        """Производит обмен RSA ключами. Первым отправляет ключи клиент, затем сервер.
+
+        :return: ``None``
+        """
+
+        self.client_blind_pubkey_n = int(json_data[jk.KEYEX_CLIENT_PUB_N])
+        self.client_blind_pubkey_e = int(json_data[jk.KEYEX_CLIENT_PUB_E])
+
+        send_data = {jk.KEYEX_SERVER_PUB_N: str(self.server_blind_pubkey_n),
+                     jk.KEYEX_SERVER_PUB_E: str(self.server_blind_pubkey_e)}
         self.send_json(send_data)
 
     def registration_handler(self, json_data: dict[str: str]) -> bool:
@@ -233,14 +264,13 @@ class ClientHandler(Thread):
         :return: ``None``
         """
         self.M_1 = json_data[jk.BLIND_MASK_IDEN_NUM]
-        self.external_n_id = self.M_1[-1]
-        self.cryptogramm_I_n_id = self.M_1[:-1]
+        self.cryptogramm_I_n_id, self.external_n_id = self.M_1
 
-        self.decrypted_I_n_id = unsign_list(self.cryptogramm_I_n_id,
-                                            self.client_pubkey_e,
-                                            self.client_pubkey_n)
+        self.decrypted_I_n_id = unsign(self.cryptogramm_I_n_id,
+                                       self.client_blind_pubkey_e,
+                                       self.client_blind_pubkey_n)
 
-        self.masked_iden_num, self.n_id = self.decrypted_I_n_id
+        self.masked_iden_num, self.n_id = unpack_I_n_id(self.decrypted_I_n_id)
 
         if (int(self.external_n_id) == int(self.n_id) and
                 int(self.n_id) == self.db_get_n_id_by_name(self.auth_firstname, self.auth_lastname)):
@@ -253,9 +283,8 @@ class ClientHandler(Thread):
         self.send_json(send_data)
 
     def blind_sign_m1_insert_handler(self, json_data: dict):
-        print(json_data)
         if json_data[jk.BLIND_SIGN_CONFIRM]:
-            self.db_insert_m1(*self.M_1)
+            self.db_insert_m1(self.masked_iden_num, self.n_id, self.external_n_id)
 
     def send_json(self, message_dict: dict[str: str]):
         """Производит отправку сериализованного JSON,

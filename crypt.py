@@ -159,10 +159,23 @@ def generate_iden_num(l: int) -> int:
     return int(''.join(choice(letters) for _ in range(l)))
 
 
+def pack_I_n_id(I, n_id) -> int:
+    postfix = ("0"*20 + str(n_id))[-20:]
+    E_I_n_id = str(I) + postfix
+    return int(E_I_n_id)
+
+
+def unpack_I_n_id(E_I_n_id):
+    I = int(str(E_I_n_id)[:-20])
+    n_id = int(str(E_I_n_id)[-20:])
+    return I, n_id
+
+
 if __name__ == '__main__':
     # Generate RSA keys
-    izb_public_key, izb_private_key = rsa.newkeys(2048)
-    ik_public_key, ik_private_key = rsa.newkeys(2048)
+    izb_public_key, izb_private_key = rsa.newkeys(512)
+    b_izb_public_key, b_izb_private_key = rsa.newkeys(1024)
+    ik_public_key, ik_private_key = rsa.newkeys(512)
 
     m = gcd_and_simpl(ik_public_key.n)
     I = generate_iden_num(100)
@@ -170,11 +183,12 @@ if __name__ == '__main__':
     print("m:", m)
 
     I_m = mask(I, m, ik_public_key.e, ik_public_key.n)  # client
-    q = [I_m, 15]
-    M_1 = sign_list(q, izb_private_key.d, izb_private_key.n)  # client
+    q = pack_I_n_id(I_m, 15)
+    M_1 = sign(q, b_izb_private_key.d, b_izb_private_key.n)  # client
 
-    M_1_check = unsign_list(M_1, izb_public_key.e, izb_public_key.n)
-    n_id, masked_iden_num = M_1_check[1], M_1_check[0]
+    M_1_check = unsign(M_1, b_izb_public_key.e, b_izb_public_key.n)
+    masked_iden_num, n_id = unpack_I_n_id(M_1_check)
+    # n_id, masked_iden_num = M_1_check[1], M_1_check[0]
     I_sm = sign(masked_iden_num, ik_private_key.d, ik_private_key.n)
 
     I_s = demask(I_sm, m, ik_public_key.n)

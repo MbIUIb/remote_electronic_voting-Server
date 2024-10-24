@@ -96,10 +96,10 @@ CREATE TABLE voters ( id SERIAL PRIMARY KEY,
 INSERT INTO voters (firstname, lastname, password) VALUES ('Ivan', 'Ivanov', 'Qq123456');
 INSERT INTO voters (firstname, lastname, password) VALUES ('Petr', 'Petrov', 'Qq123456');
 
-CREATE TABLE m1 ( id INTEGER,
-                  encrypt_ident_num TEXT,
-                  rec_id INTEGER,
-                  masked_ident_num TEXT);
+CREATE TABLE m1 ( id SERIAL PRIMARY KEY,
+                  encrypted_iden_num TEXT,
+                  n_id TEXT,
+                  external_n_id INTEGER);
 
 CREATE TABLE votes (vote_id INTEGER,
                     encrypt_vote TEXT,
